@@ -202,7 +202,6 @@ app.get('/jwt',async(req,res)=>{
       const token=jwt.sign({email},process.env.ACCESS_TOKEN,{expiresIn:'1h'})
       return res.send({accessToken:token})
   })
-
     }
     finally{
 
