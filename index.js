@@ -67,13 +67,13 @@ res.send(product)
 app.get('/addmobiles',async(req,res)=>{
   const query={};
   const result=await mobilesCollection.find(query).toArray();
-  res.send(result)
+  res.send(result);
 })
 app.post('/addmobiles',async(req,res)=>{
   const mobile=req.body;
   const result=await mobilesCollection.insertOne(mobile);
   res.send(result);
-  
+
 })
 app.delete('/addmobiles/:id',async(req,res)=>{
   const id=req.params.id;
