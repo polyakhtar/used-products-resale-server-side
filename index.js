@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
  const stripe = require("stripe")('sk_test_51M66GGIo1LJSizd52lmGNVzhlq6Zg9xPhKmCDiFs0O0JWW4QSCnJcMAPuN0Lkaaj3vJn5KrUuRsJnDvpLXDeMNSX00HO7rHyvl');
+ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const morgan = require('morgan');
 
@@ -19,6 +20,22 @@ app.use(morgan("dev"));
 // run mongodb
 dbConnect();
 
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    res.status(401).send({ message: 'Unauthorized access' });
+  }
+  const token = authHeader.split(' ')[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN, function (err, decoded) {
+    if (err) {
+      res.status(401).send({ message: 'Unauthorized access' });
+    } else {
+      req.decoded = decoded;
+      next(); // Move this line here
+    }
+  });
+}
+
 const categoryCollection = client.db('resalePhone').collection('categories');
 const reviewCollection=client.db('resalePhone').collection('reviews');
 const productsCollection=client.db('resalePhone').collection('products');
@@ -26,6 +43,12 @@ const bookingCollection=client.db('resalePhone').collection('bookings');
 const usersCollection=client.db('resalePhone').collection('users');
 const mobileCollection=client.db('resalePhone').collection('mobiles');
 const paymentCollection=client.db('resalePhone').collection('payments');
+
+ app.post('/jwt',async(req,res)=>{
+  const user=req.body;
+  const token=jwt.sign(user,process.env.ACCESS_TOKEN,{expiresIn:'2 days'})
+  res.send({token})
+ })
 
 
 app.get('/categories', async (req, res) => {
@@ -50,6 +73,15 @@ app.post("/create-payment-intent", async (req, res) => {
 app.post('/payments',async(req,res)=>{
   const payment=req.body;
   const result=await paymentCollection.insertOne(payment);
+  const id=payment.bookingId;
+  const filter={_id:new ObjectId(id)};
+  const updatedDoc={
+    $set:{
+      paid:true,
+      transactionId:payment.transactionId
+    }
+  }
+  const updatedResult=await bookingCollection.updateOne(filter,updatedDoc)
   res.send(result)
 })
 
@@ -76,7 +108,7 @@ app.post('/bookings',async(req,res)=>{
   const result=await bookingCollection.insertOne(booking);
   res.send(result)
 });
-app.get('/bookings/:id', async (req, res) => {
+app.get('/bookings/:id',verifyJWT, async (req, res) => {
   try {
     const id = req.params.id;
     console.log('Received id:', id); // Add this line to log the id
@@ -91,6 +123,27 @@ app.get('/bookings/:id', async (req, res) => {
   }
 });
 
+app.put('/users/seller/:id/verify', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+      $set: {
+        verification: 'verified'
+      }
+    };
+    const result = await usersCollection.updateOne(filter, updateDoc);
+    
+    if (result.modifiedCount > 0) {
+      res.send({ success: true });
+    } else {
+      res.send({ success: false, message: 'Seller not found or not modified' });
+    }
+  } catch (error) {
+    res.status(500).send({ success: false, error: error.message });
+  }
+});
+  
 app.post('/users',async(req,res)=>{
   const user=req.body;
   const result=await usersCollection.insertOne(user);
@@ -122,10 +175,10 @@ app.get('/users/seller',async(req,res)=>{
   res.send(result)
 })
 app.get('/users/buyer',async(req,res)=>{
-  const buyer={type:'Buyer'}
-  const result=await usersCollection.find(buyer).toArray();
+  const seller={type:'Buyer'}
+  const result=await usersCollection.find(seller).toArray();
   res.send(result)
-});
+})
 app.delete('/users/buyer/:id',async (req, res) => {
   try {
     const id = req.params.id;
@@ -168,7 +221,7 @@ app.delete('/addmobiles/:id',async (req, res) => {
   try {
     const id = req.params.id;
     const filter={_id:new ObjectId(id)}
-    const result = await usersCollection.deleteOne(filter);
+    const result = await mobileCollection.deleteOne(filter);
     res.send(result);
 
   } catch (error) {
@@ -178,21 +231,22 @@ app.delete('/addmobiles/:id',async (req, res) => {
     })
   }
 });
-app.get('/bookings/email/:email', async (req, res) => {
-  try {
-    const email = req.params.email;
-    const query = { email};
-    const cursor = bookingCollection.find(query);
-    const result = await cursor.toArray();
 
-    res.send(result);
-
-  } catch (error) {
-    res.send({
-      success: false,
-      error: error.message
-    })
+app.get('/bookings', verifyJWT, async (req, res) => {
+  const decoded = req.decoded;
+  // console.log('inside orders api', decoded);
+  if(decoded.email!==req.query.email){
+    res.status(403).send({message:'Unauthorezed access'})
   }
+  let query;
+  if(req.query.email){
+    query={
+      email:req.query.email
+    }
+  }
+  const cursor=bookingCollection.find(query);
+  const bookings=await cursor.toArray();
+  res.send(bookings)
 });
 app.get('/', (req, res) => {
   res.send("Server is running");
